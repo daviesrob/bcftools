@@ -22,6 +22,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.  */
 
+#include "config.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -40,6 +41,8 @@ THE SOFTWARE.  */
 #include "bcftools.h"
 #include "vcmp.h"
 #include "filter.h"
+
+#ifdef ENABLE_BCF_PLUGINS
 
 typedef struct _plugin_t plugin_t;
 
@@ -208,7 +211,7 @@ static void *dlopen_plugin(args_t *args, const char *fname)
         int i;
         for (i=0; i<args->nplugin_paths; i++)
         {
-            tmp = msprintf("%s/%s.so", args->plugin_paths[i],fname);
+	    tmp = msprintf("%s/%s%s", args->plugin_paths[i], fname, PLUGIN_EXT);
             handle = dlopen(tmp, RTLD_NOW); // valgrind complains about unfreed memory, not our problem though
             if ( args->verbose > 1 )
             {
@@ -361,6 +364,7 @@ static int list_plugins(args_t *args)
     init_plugin_paths(args);
 
     kstring_t str = {0,0,0};
+    int plugin_ext_len = strlen(PLUGIN_EXT);
     int i;
     for (i=0; i<args->nplugin_paths; i++)
     {
@@ -371,7 +375,7 @@ static int list_plugins(args_t *args)
         while ( (ep=readdir(dp)) )
         {
             int len = strlen(ep->d_name);
-            if ( strcasecmp(".so",ep->d_name+len-3) ) continue;
+            if ( strcasecmp(PLUGIN_EXT,ep->d_name+len-plugin_ext_len) ) continue;
             str.l = 0;
             ksprintf(&str,"%s/%s", args->plugin_paths[i],ep->d_name);
             hts_expand(plugin_t, nplugins+1, mplugins, plugins);
@@ -640,3 +644,13 @@ int main_plugin(int argc, char *argv[])
     return 0;
 }
 
+#else /* ENABLE_BCF_PLUGINS */
+
+int main_plugin(int argc, char *argv[])
+{
+    fprintf(stderr, "bcftools plugins are disabled.  To use them, you will need to rebuild\n"
+	    "bcftools from the source distribution with plugins enabled.\n");
+    return 1;
+}
+
+#endif /* ENABLE_BCF_PLUGINS */
