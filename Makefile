@@ -302,7 +302,7 @@ test/test-rbuf: test/test-rbuf.o
 test/test-regidx.o: test/test-regidx.c $(htslib_kstring_h) $(htslib_hts_os_h) regidx.h
 
 test/test-regidx: test/test-regidx.o regidx.o | $(HTSLIB)
-	$(CC) $(ALL_LDFLAGS) -o $@ $^ -lpthread $(HTSLIB_LIB) $(ALL_LIBS)
+	$(CC) $(ALL_LDFLAGS) -o $@ $^ $(HTSLIB_LIB) -lpthread $(ALL_LIBS)
 
 
 # make docs target depends the a2x asciidoc program
