@@ -281,17 +281,17 @@ static void process_info(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isamp
             kputc('.', str);
             return;
         }
-        #define BRANCH(type_t, is_missing, is_vector_end, kprint) { \
-            type_t val = ((type_t *) info->vptr)[fmt->subscript]; \
+        #define BRANCH(type_t, convert, is_missing, is_vector_end, kprint) { \
+            type_t val = convert(&info->vptr[fmt->subscript * sizeof(type_t)]); \
             if ( is_missing || is_vector_end ) kputc('.',str); \
             else kprint; \
         }
         switch (info->type)
         {
-            case BCF_BT_INT8:  BRANCH(int8_t,  val==bcf_int8_missing,  val==bcf_int8_vector_end,  kputw(val, str)); break;
-            case BCF_BT_INT16: BRANCH(int16_t, val==bcf_int16_missing, val==bcf_int16_vector_end, kputw(val, str)); break;
-            case BCF_BT_INT32: BRANCH(int32_t, val==bcf_int32_missing, val==bcf_int32_vector_end, kputw(val, str)); break;
-            case BCF_BT_FLOAT: BRANCH(float,   bcf_float_is_missing(val), bcf_float_is_vector_end(val), kputd(val, str)); break;
+            case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8, val==bcf_int8_missing,  val==bcf_int8_vector_end,  kputw(val, str)); break;
+            case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, val==bcf_int16_missing, val==bcf_int16_vector_end, kputw(val, str)); break;
+            case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, val==bcf_int32_missing, val==bcf_int32_vector_end, kputw(val, str)); break;
+            case BCF_BT_FLOAT: BRANCH(float,   le_to_float, bcf_float_is_missing(val), bcf_float_is_vector_end(val), kputd(val, str)); break;
             case BCF_BT_CHAR:  _copy_field((char*)info->vptr, info->vptr_len, fmt->subscript, str); break;
             default: fprintf(stderr,"todo: type %d\n", info->type); exit(1); break;
         }
@@ -496,14 +496,14 @@ static void process_tbcsq(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isam
 
     int mask = fmt->subscript==0 ? 3 : 1;   // merge both haplotypes if subscript==0
 
-    #define BRANCH(type_t, nbits) { \
-        type_t *x = (type_t*)(fmt->fmt->p + isample*fmt->fmt->size); \
+    #define BRANCH(type_t, convert, nbits) { \
+        uint8_t *x = (fmt->fmt->p + isample*fmt->fmt->size); \
         int i,j; \
         if ( fmt->subscript<=0 || fmt->subscript==1 ) \
         { \
             for (j=0; j < fmt->fmt->n; j++) \
             { \
-                type_t val = x[j]; \
+                type_t val = convert(&x[j * sizeof(type_t)]); \
                 if ( !val ) continue; \
                 for (i=0; i<nbits; i+=2) \
                     if ( val & (mask<<i) ) { kputs(csq->str[(j*32+i)/2], &csq->hap1); kputc_(',', &csq->hap1); } \
@@ -513,7 +513,7 @@ static void process_tbcsq(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isam
         { \
             for (j=0; j < fmt->fmt->n; j++) \
             { \
-                type_t val = x[j]; \
+                type_t val = convert(&x[j * sizeof(type_t)]); \
                 if ( !val ) continue; \
                 for (i=1; i<nbits; i+=2) \
                     if ( val & (1<<i) ) { kputs(csq->str[(j*32+i)/2], &csq->hap2); kputc_(',', &csq->hap2); } \
@@ -522,9 +522,9 @@ static void process_tbcsq(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isam
     }
     switch (fmt->fmt->type)
     {
-        case BCF_BT_INT8:  BRANCH(uint8_t, 8); break;
-        case BCF_BT_INT16: BRANCH(uint16_t,16); break;
-        case BCF_BT_INT32: BRANCH(uint32_t,32); break;
+        case BCF_BT_INT8:  BRANCH(uint8_t,  le_to_i8,   8); break;
+        case BCF_BT_INT16: BRANCH(uint16_t, le_to_i16, 16); break;
+        case BCF_BT_INT32: BRANCH(uint32_t, le_to_i32, 32); break;
         default: error("Unexpected type: %d\n", fmt->fmt->type); exit(1); break;
     }
     #undef BRANCH
@@ -1173,16 +1173,16 @@ static void process_pbinom(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isa
         int al = bcf_gt_allele(gt[i]);
         if ( al > line->n_allele || al >= fmt->fmt->n ) goto invalid;
 
-        #define BRANCH(type_t, missing, vector_end) { \
-            type_t val = ((type_t *) fmt->fmt->p)[al + isample*fmt->fmt->n]; \
+        #define BRANCH(type_t, convert, missing, vector_end) { \
+            type_t val = convert(&fmt->fmt->p[al + isample*fmt->fmt->n*sizeof(type_t)]); \
             if ( val==missing || val==vector_end ) goto invalid; \
             else n[i] = val; \
         }
         switch (fmt->fmt->type)
         {
-            case BCF_BT_INT8:  BRANCH(int8_t,  bcf_int8_missing,  bcf_int8_vector_end); break;
-            case BCF_BT_INT16: BRANCH(int16_t, bcf_int16_missing, bcf_int16_vector_end); break;
-            case BCF_BT_INT32: BRANCH(int32_t, bcf_int32_missing, bcf_int32_vector_end); break;
+            case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8,  bcf_int8_missing,  bcf_int8_vector_end); break;
+            case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, bcf_int16_missing, bcf_int16_vector_end); break;
+            case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, bcf_int32_missing, bcf_int32_vector_end); break;
             default: goto invalid; break;
         }
         #undef BRANCH

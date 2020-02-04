@@ -1088,32 +1088,32 @@ static void merge_AGR_info_tag(bcf_hdr_t *hdr, bcf1_t *line, bcf_info_t *info, i
         if ( len==BCF_VL_A || len==BCF_VL_R )
         {
             int ifrom = len==BCF_VL_A ? 1 : 0;
-            #define BRANCH(type_t, is_missing, is_vector_end, out_type_t) { \
-                type_t *src = (type_t *) info->vptr; \
+            #define BRANCH(type_t, convert, is_missing, is_vector_end, out_type_t) { \
+                uint8_t *src = info->vptr; \
                 out_type_t *tgt = (out_type_t *) agr->buf; \
                 int iori, inew; \
-                for (iori=ifrom; iori<line->n_allele; iori++) \
+                for (iori=ifrom; iori<line->n_allele; iori++, src += sizeof(type_t)) \
                 { \
+                    type_t val = convert(src); \
                     if ( is_vector_end ) break; \
                     if ( is_missing ) continue; \
                     inew = als->map[iori] - ifrom; \
-                    tgt[inew] = *src; \
-                    src++; \
+                    tgt[inew] = val; \
                 } \
             }
             switch (info->type) {
-                case BCF_BT_INT8:  BRANCH(int8_t,  *src==bcf_int8_missing,  *src==bcf_int8_vector_end,  int); break;
-                case BCF_BT_INT16: BRANCH(int16_t, *src==bcf_int16_missing, *src==bcf_int16_vector_end, int); break;
-                case BCF_BT_INT32: BRANCH(int32_t, *src==bcf_int32_missing, *src==bcf_int32_vector_end, int); break;
-                case BCF_BT_FLOAT: BRANCH(float,   bcf_float_is_missing(*src), bcf_float_is_vector_end(*src), float); break;
+                case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8,  val == bcf_int8_missing,  val == bcf_int8_vector_end,  int); break;
+                case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, val == bcf_int16_missing, val == bcf_int16_vector_end, int); break;
+                case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, val == bcf_int32_missing, val == bcf_int32_vector_end, int); break;
+                case BCF_BT_FLOAT: BRANCH(float,   le_to_float, bcf_float_is_missing(val), bcf_float_is_vector_end(val), float); break;
                 default: fprintf(stderr,"TODO: %s:%d .. info->type=%d\n", __FILE__,__LINE__, info->type); exit(1);
             }
             #undef BRANCH
         }
         else
         {
-            #define BRANCH(type_t, is_missing, is_vector_end, out_type_t) { \
-                type_t *src = (type_t *) info->vptr; \
+            #define BRANCH(type_t, convert, is_missing, is_vector_end, out_type_t) { \
+                uint8_t *src = info->vptr; \
                 out_type_t *tgt = (out_type_t *) agr->buf; \
                 int iori,jori, inew,jnew; \
                 for (iori=0; iori<line->n_allele; iori++) \
@@ -1123,19 +1123,20 @@ static void merge_AGR_info_tag(bcf_hdr_t *hdr, bcf1_t *line, bcf_info_t *info, i
                     { \
                         jnew = als->map[jori]; \
                         int kori = iori*(iori+1)/2 + jori; \
+                        type_t val = convert(&src[kori * sizeof(type_t)]); \
                         if ( is_vector_end ) break; \
                         if ( is_missing ) continue; \
                         int knew = inew>jnew ? inew*(inew+1)/2 + jnew : jnew*(jnew+1)/2 + inew; \
-                        tgt[knew] = src[kori]; \
+                        tgt[knew] = val; \
                     } \
                     if ( jori<=iori ) break; \
                 } \
             }
             switch (info->type) {
-                case BCF_BT_INT8:  BRANCH(int8_t,  src[kori]==bcf_int8_missing,  src[kori]==bcf_int8_vector_end,  int); break;
-                case BCF_BT_INT16: BRANCH(int16_t, src[kori]==bcf_int16_missing, src[kori]==bcf_int16_vector_end, int); break;
-                case BCF_BT_INT32: BRANCH(int32_t, src[kori]==bcf_int32_missing, src[kori]==bcf_int32_vector_end, int); break;
-                case BCF_BT_FLOAT: BRANCH(float,   bcf_float_is_missing(src[kori]), bcf_float_is_vector_end(src[kori]), float); break;
+                case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8,  val==bcf_int8_missing,  val==bcf_int8_vector_end,  int); break;
+                case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, val==bcf_int16_missing, val==bcf_int16_vector_end, int); break;
+                case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, val==bcf_int32_missing, val==bcf_int32_vector_end, int); break;
+                case BCF_BT_FLOAT: BRANCH(float,   le_to_float, bcf_float_is_missing(val), bcf_float_is_vector_end(val), float); break;
                 default: fprintf(stderr,"TODO: %s:%d .. info->type=%d\n", __FILE__,__LINE__, info->type); exit(1);
             }
             #undef BRANCH
@@ -1638,7 +1639,7 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
         }
 
         // set the values
-        #define BRANCH(tgt_type_t, src_type_t, src_is_missing, src_is_vector_end, tgt_set_missing, tgt_set_vector_end) { \
+        #define BRANCH(tgt_type_t, src_type_t, src_is_missing, src_is_vector_end, tgt_set_missing, tgt_set_vector_end, copy_src_tgt) { \
             int j, l, k; \
             tgt_type_t *tgt = (tgt_type_t *) ma->tmp_arr + ismpl*nsize; \
             if ( !fmt_ori ) \
@@ -1651,7 +1652,7 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                 ismpl += bcf_hdr_nsamples(hdr); \
                 continue; \
             } \
-            src_type_t *src = (src_type_t*) fmt_ori->p; \
+            uint8_t *src = fmt_ori->p; \
             if ( (length!=BCF_VL_G && length!=BCF_VL_A && length!=BCF_VL_R) || (line->n_allele==out->n_allele && !ma->buf[i].rec[irec].als_differ) ) \
             { \
                 /* alleles unchanged, copy over */ \
@@ -1661,11 +1662,11 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                     { \
                         if ( src_is_vector_end ) break; \
                         else if ( src_is_missing ) tgt_set_missing; \
-                        else *tgt = *src; \
-                        tgt++; src++; \
+                        else copy_src_tgt; \
+                        tgt++; src += sizeof(src_type_t); \
                     } \
                     for (k=l; k<nsize; k++) { tgt_set_vector_end; tgt++; } \
-                    src += fmt_ori->n - l; \
+                    src += sizeof(src_type_t) * (fmt_ori->n - l); \
                 } \
                 ismpl += bcf_hdr_nsamples(hdr); \
                 continue; \
@@ -1677,8 +1678,13 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                 for (j=0; j<bcf_hdr_nsamples(hdr); j++) \
                 { \
                     tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize; \
-                    src = (src_type_t*) fmt_ori->p + j*fmt_ori->n; \
-                    if ( (src_is_missing && fmt_ori->n==1) || (++src && src_is_vector_end) ) \
+                    src = fmt_ori->p + sizeof(src_type_t) * j * fmt_ori->n; \
+                    int tag_missing = src_is_missing && fmt_ori->n==1; \
+                    if (!tag_missing) { \
+                        src += sizeof(src_type_t); \
+                        tag_missing = src_is_vector_end ; \
+                    } \
+                    if ( tag_missing ) \
                     { \
                         /* tag with missing value "." */ \
                         tgt_set_missing; \
@@ -1695,11 +1701,11 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                         for (iori=0; iori<line->n_allele; iori++) \
                         { \
                             inew = ma->buf[i].rec[irec].map[iori]; \
-                            src = (src_type_t*) fmt_ori->p + j*fmt_ori->n + iori; \
+                            src = fmt_ori->p + sizeof(src_type_t) * (j*fmt_ori->n + iori); \
                             tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize + inew; \
                             if ( src_is_vector_end ) break; \
                             if ( src_is_missing ) tgt_set_missing; \
-                            else *tgt = *src; \
+                            else copy_src_tgt; \
                         } \
                     } \
                     else \
@@ -1714,7 +1720,7 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                                 jnew = ma->buf[i].rec[irec].map[jori]; \
                                 int kori = iori*(iori+1)/2 + jori; \
                                 int knew = inew>jnew ? inew*(inew+1)/2 + jnew : jnew*(jnew+1)/2 + inew; \
-                                src = (src_type_t*) fmt_ori->p + j*fmt_ori->n + kori; \
+                                src = fmt_ori->p + sizeof(src_type_t) * (j*fmt_ori->n + kori); \
                                 tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize + knew; \
                                 if ( src_is_vector_end ) \
                                 { \
@@ -1722,7 +1728,7 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                                     break; \
                                 } \
                                 if ( src_is_missing ) tgt_set_missing; \
-                                else *tgt = *src; \
+                                else copy_src_tgt; \
                             } \
                         } \
                     } \
@@ -1735,15 +1741,20 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                 for (j=0; j<bcf_hdr_nsamples(hdr); j++) \
                 { \
                     tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize; \
-                    src = (src_type_t*) (fmt_ori->p + j*fmt_ori->size); \
-                    if ( (src_is_missing && fmt_ori->n==1) || (++src && src_is_vector_end) ) \
+                    src = fmt_ori->p + sizeof(src_type_t) * j*fmt_ori->size; \
+                    int tag_missing = src_is_missing && fmt_ori->n==1; \
+                    if (!tag_missing) { \
+                        src += sizeof(src_type_t); \
+                        tag_missing = src_is_vector_end ; \
+                    } \
+                    if ( tag_missing ) \
                     { \
                         /* tag with missing value "." */ \
                         tgt_set_missing; \
                         for (l=1; l<nsize; l++) { tgt++; tgt_set_vector_end; } \
                         continue; \
                     } \
-                    src = (src_type_t*) (fmt_ori->p + j*fmt_ori->size); \
+                    src = fmt_ori->p + sizeof(src_type_t) * j*fmt_ori->size; \
                     for (l=0; l<nsize; l++) { tgt_set_missing; tgt++; } \
                     int iori,inew; \
                     for (iori=ifrom; iori<line->n_allele; iori++) \
@@ -1752,8 +1763,8 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                         tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize + inew; \
                         if ( src_is_vector_end ) break; \
                         if ( src_is_missing ) tgt_set_missing; \
-                        else *tgt = *src; \
-                        src++; \
+                        else copy_src_tgt; \
+                        src+=sizeof(src_type_t); \
                     } \
                 } \
             } \
@@ -1761,10 +1772,10 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
         }
         switch (type)
         {
-            case BCF_BT_INT8:  BRANCH(int32_t,  int8_t, *src==bcf_int8_missing,  *src==bcf_int8_vector_end,  *tgt=bcf_int32_missing, *tgt=bcf_int32_vector_end); break;
-            case BCF_BT_INT16: BRANCH(int32_t, int16_t, *src==bcf_int16_missing, *src==bcf_int16_vector_end, *tgt=bcf_int32_missing, *tgt=bcf_int32_vector_end); break;
-            case BCF_BT_INT32: BRANCH(int32_t, int32_t, *src==bcf_int32_missing, *src==bcf_int32_vector_end, *tgt=bcf_int32_missing, *tgt=bcf_int32_vector_end); break;
-            case BCF_BT_FLOAT: BRANCH(float, float, bcf_float_is_missing(*src), bcf_float_is_vector_end(*src), bcf_float_set_missing(*tgt), bcf_float_set_vector_end(*tgt)); break;
+            case BCF_BT_INT8:  BRANCH(int32_t,  int8_t, le_to_i8(src)==bcf_int8_missing,  le_to_i8(src)==bcf_int8_vector_end, *tgt = bcf_int32_missing, *tgt = bcf_int32_vector_end, *tgt = le_to_i8(src)); break;
+            case BCF_BT_INT16: BRANCH(int32_t, int16_t, le_to_i16(src) == bcf_int16_missing, le_to_i16(src) == bcf_int16_vector_end, *tgt = bcf_int32_missing, *tgt = bcf_int32_vector_end, *tgt = le_to_i16(src)); break;
+            case BCF_BT_INT32: BRANCH(int32_t, int32_t, le_to_i32(src) == bcf_int32_missing, le_to_i32(src) == bcf_int32_vector_end, *tgt = bcf_int32_missing, *tgt = bcf_int32_vector_end, *tgt = le_to_i32(src)); break;
+            case BCF_BT_FLOAT: BRANCH(float, float, bcf_float_is_missing(le_to_float(src)), bcf_float_is_vector_end(le_to_float(src)), bcf_float_set_missing(*tgt), bcf_float_set_vector_end(*tgt), *tgt = le_to_float(src)); break;
             default: error("Unexpected case: %d, %s\n", type, key);
         }
         #undef BRANCH

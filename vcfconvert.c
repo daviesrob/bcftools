@@ -170,7 +170,11 @@ static int tsv_setter_chrom_pos_ref_alt(tsv_t *tsv, bcf1_t *rec, void *usr)
     if (*se && *se=='_') {
         long end = strtol(se+1,&ss,10);
         if ( ss==se+1 ) error("Could not parse END in CHROM:POS_REF_ALT_END: %s\n", tsv->ss);
-        bcf_update_info_int32(args->header, rec, "END", &end, 1);
+        if (end < 1 || end > INT_MAX)
+            error("END value %ld is %s in CHROM:POS_REF_ALT_END.\n",
+                  end, end < 1 ? "zero or negative" : "too big");
+        int32_t e = end; // bcf_update_info_int32 needs an int32_t pointer
+        bcf_update_info_int32(args->header, rec, "END", &e, 1);
     }
 
     return 0;
