@@ -29,6 +29,11 @@ matrix:
       compiler: clang
       sudo: required
       env: CFLAGS="-fsanitize=address" LDFLAGS="-fsanitize=address" USE_CONFIG=yes
+    # Test on a big-endian system
+    - os: linux
+      compiler: gcc
+      arch: s390x
+      env: USE_CONFIG=yes
 
 env:
   global:
