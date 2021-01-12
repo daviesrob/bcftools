@@ -32,8 +32,8 @@ compile_template: &COMPILE
 
   compile_script: |
     if test "$USE_CONFIG" = "yes"; then
-      (cd $HTSDIR && autoreconf)
-      autoreconf
+      (cd $HTSDIR && autoreconf -i)
+      autoreconf -i
       ./configure || (cat config.log; /bin/false)
       make -j3
     else
