@@ -89,7 +89,9 @@ ubuntu_task:
   matrix:
     - environment:
        USE_CONFIG: no
-    - environment:
+    - container:
+       memory: 2G
+      environment:
        USE_CONFIG: yes
        CFLAGS: -g -Wall -O3 -fsanitize=address
        LDFLAGS: -fsanitize=address -Wl,-rpath,`pwd`/inst/lib
