@@ -1,5 +1,11 @@
 ## Release a.b
 
+Changes affecting specific commands:
+
+* bcftools +split-vep
+
+    - Prevent a segfault when `-i/-e` use a VEP subfield not included in `-f` or `-c` (#1877)
+
 ## Release 1.17 (21st February 2023)
 
 
